@@ -1,86 +1,11 @@
-import time
 import streamlit as st
 
 from util.state import State
+from util.generate import generate_cover_letter, generate_embeddings_from_resume
 from ui.home import Home
-from util.file_loader import text_from_file, FileStatus
-
-from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.vectorstores import Chroma
-from langchain.text_splitter import TokenTextSplitter
-from langchain.chat_models import ChatOpenAI
-
-from langchain.prompts.prompt import PromptTemplate
-from langchain.chains import ConversationalRetrievalChain
-from langchain.memory import ConversationBufferMemory
 
 
-def generate_embeddings_from_resume():
-    """on file upload, get the text from the resume and store it in the session state
-    Args:
-    Returns:
-    """
-
-    file = st.session_state["cl_resume"]
-    if file is not None:
-        text, status = text_from_file(file)
-        if status == FileStatus.FILE_PARSED:
-            st.success("file uploaded successfully")
-            text_splitter = TokenTextSplitter(chunk_size=1000, chunk_overlap=50)
-            split_doc = text_splitter.split_text(text)
-            embeddings = OpenAIEmbeddings()
-            vectordb = Chroma.from_texts(split_doc, embeddings)
-            retriever = vectordb.as_retriever(search_type="similarity")
-            st.session_state["cl_resume_retriever"] = retriever
-
-        else:
-            st.warning("currently supported file types: pdf")
-            st.session_state["cl_resume_retriever"] = None
-    else:
-        st.session_state["cl_resume_text"] = None
-
-
-def generate_cover_letter(cl_job, cl_company):
-    # creating a prompt
-    cl_job_template = PromptTemplate(
-        input_variables=["cl_job", "cl_company", "lookup_resume"],
-        template="""
-                    % QUERY:
-                    write me a cover letter for the {cl_job} at {cl_company}
-                    {lookup_resume}
-                    
-                    % RESPONSE:
-                """,
-    )
-    # getting retriever and memory for openai chat
-    retriever = st.session_state["cl_resume_retriever"]
-    st.session_state["memory"] = memory = ConversationBufferMemory(
-        memory_key="chat_history", return_messages=True
-    )
-    # creating llm qa chain
-    llm = ChatOpenAI(temperature=0.9, model_name="gpt-3.5-turbo")
-    if retriever is not None:
-        my_qa = ConversationalRetrievalChain.from_llm(
-            llm, retriever, cl_job_template, verbose=True, memory=memory
-        )
-    else:
-        my_qa = ConversationalRetrievalChain.from_llm(
-            llm, cl_job_template, verbose=True, memory=memory
-        )
-    # generating the cover letter
-    lookup_resume = (
-        ""
-        if retriever is None
-        else "use the provided resume to generate the cover letter"
-    )
-    question = cl_job_template.format(
-        cl_job=cl_job, cl_company=cl_company, lookup_resume=lookup_resume
-    )
-    result = my_qa({"question": question})
-    home_ui.update_paper_container(updated_text=result['answer'])
-
-
-def maybe_generate_cover_letter(update_button_state: State, *args):
+def maybe_generate_cover_letter(update_button_state, toggle_generate_button, home_ui):
     """check if button pressed, state updated, and required fields are filled if so, generate new cover letter
     Args:
         update_button_state (State): the state to check if the button has been pressed
@@ -88,25 +13,33 @@ def maybe_generate_cover_letter(update_button_state: State, *args):
     Returns:
     """
 
-    if st.button("Generate"):
-        # getting the values from the text inputs and checking if they have changed
-        cl_job = st.session_state["cl_job"]
-        cl_company = st.session_state["cl_company"]
+    toggle_generate_button(True)
+    # getting the values from the text inputs and checking if they have changed
+    cl_job = st.session_state["cl_job"]
+    cl_company = st.session_state["cl_company"]
+    cl_resume = st.session_state["cl_resume"]
 
-        state_changed = update_button_state.check_state_changed(cl_job, cl_company)
-        # job_title or company is empty, warn user
-        if cl_job == "" or cl_company == "":
-            st.warning("Please enter a job title and company")
-            home_ui.update_paper_container()
+    state_changed = update_button_state.check_state_changed(cl_job, cl_company, cl_resume)
+    # job_title or company is empty, warn user
+    if cl_job == "" or cl_company == "" or cl_resume is None:
+        warning_message = "Please enter the following: "
+        warning_message += "job title, " if cl_job == "" else ""
+        warning_message += "company, " if cl_company == "" else ""
+        warning_message += "resume" if cl_resume is None else ""
+        st.warning(warning_message)
+        home_ui.update_paper_container()
+        toggle_generate_button(False)
 
-        # job_title and company are filled, and state has changed, generate new cover letter
-        elif cl_job and cl_company and state_changed:
-            st.success("Generating cover letter")
-            generate_cover_letter(cl_job, cl_company)
+    # job_title and company are filled, and state has changed, generate new cover letter
+    elif cl_job and cl_company and state_changed:
+        st.success("Generating cover letter")
+        generate_cover_letter(st, home_ui)
+        toggle_generate_button(False)
 
-        # job_title and company are filled, but state has not changed, do nothing
-        else:
-            home_ui.update_paper_container()
+    # job_title and company are filled, but state has not changed, do nothing
+    else:
+        home_ui.update_paper_container()
+        toggle_generate_button(False)
 
 
 # initializing the streamlit UI
@@ -123,16 +56,33 @@ with home_ui.col1:
         This is used to help openai generate an accurate cover letter base on your skills and experience\n
         We will not store your resume or any other personal information
     """
+    # intializing retriever for resume
+    # TODO: split embedding/vectorstore generation and retriever generation
+    # more embeddings/vectorstores are going to be needed and only one retriever can be used for this usecase
     file = st.file_uploader(
         label="upload your resume here",
         accept_multiple_files=False,
         help=help_text,
         key="cl_resume",
         on_change=generate_embeddings_from_resume,
+        args=(st, )
     )
 
 
 # creating a state to check if the values for the cover letter have changed
 update_button_state = State()
 # attempts to generate cover letter on 'Generate' button press
-maybe_generate_cover_letter(update_button_state)
+if "generate_button_disabled" not in st.session_state:
+    st.session_state["generate_button_disabled"] = False
+def disable_generate_button(disable):
+    st.session_state["generate_button_disabled"] = disable
+
+# TODO: add a loading spinner while the cover letter is being generated
+# TODO: add logic to replace the generate button with a regenerate button when no changes have been made to inputs
+st.button(
+    "GENERATE",
+    on_click=maybe_generate_cover_letter,
+    key="generate_button",
+    args=(update_button_state, disable_generate_button, home_ui, ),
+    disabled=st.session_state["generate_button_disabled"],
+)
