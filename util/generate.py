@@ -21,13 +21,16 @@ def generate_embeddings_from_resume(st):
     if file is not None:
         text, status = text_from_file(file)
         if status == FileStatus.FILE_PARSED:
-            st.success("file uploaded successfully")
             text_splitter = TokenTextSplitter(chunk_size=1000, chunk_overlap=50)
             split_doc = text_splitter.split_text(text)
-            embeddings = OpenAIEmbeddings()
-            vectordb = Chroma.from_texts(split_doc, embeddings)
-            retriever = vectordb.as_retriever(search_type="similarity")
-            st.session_state["cl_resume_retriever"] = retriever
+            if len(split_doc) <= 5:
+                st.success("file uploaded successfully")
+                embeddings = OpenAIEmbeddings()
+                vectordb = Chroma.from_texts(split_doc, embeddings)
+                retriever = vectordb.as_retriever(search_type="similarity")
+                st.session_state["cl_resume_retriever"] = retriever
+            else:
+                st.warning("resume is too long, please upload a shorter resume")
 
         else:
             st.warning("currently supported file types: pdf")
