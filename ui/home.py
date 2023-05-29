@@ -51,7 +51,7 @@ class Home:
         self.prompt_container.empty()
         self.prompt_container.markdown(
             f"""
-            <div style="padding: 10px; background-color: #f9f9f9; border-radius: 5px; width: 250%;">
+            <div style="padding: 10px; border-radius: 5px; width: 250%;">
             <p style="font-family: Arial, sans-serif;">
             {st.session_state['paper_container']}
             </p>
