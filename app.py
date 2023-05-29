@@ -1,78 +1,88 @@
-# import deps
-import time
 import streamlit as st
-from uitl.state import State
-from ui.home import Home
-from langchain.llms import OpenAI
-from langchain.prompts import PromptTemplate
-from langchain.chains import LLMChain, SimpleSequentialChain
 
-def maybe_generate_cover_letter(update_button_state: State, *args):
+from util.state import State
+from util.generate import generate_cover_letter, generate_embeddings_from_resume
+from ui.home import Home
+
+
+def maybe_generate_cover_letter(update_button_state, toggle_generate_button, home_ui):
     """check if button pressed, state updated, and required fields are filled if so, generate new cover letter
     Args:
         update_button_state (State): the state to check if the button has been pressed
         *args (tuple): the state to check if the state has changed
     Returns:
     """
-    
-    if st.button("Generate"):
-        # getting the values from the text inputs and checking if they have changed
-        cl_job = st.session_state['cl_job']
-        cl_company = st.session_state['cl_company']
-        cl_resume = st.session_state['cl_resume']
-        print(cl_resume)
-        state_changed = update_button_state.check_state_changed(cl_job, cl_company)
-        
-        if cl_job == "" or cl_company == "":
-            st.warning("Please enter a job title and company")
-            home_ui.update_paper_container()
-        elif cl_job and cl_company and state_changed:
-            # response = cl_chain.run({'cl_job': cl_job, 'cl_company': cl_company})
-            result = f"Textbox updated at {time.time()}"
-            home_ui.update_paper_container(updated_text=result)
-        else:
-            home_ui.update_paper_container()
-            
-def get_text_from_resume():
-    file = st.session_state['cl_resume']
-    if file:
-        if file.type == "application/pdf":
-                st.success("file uploaded successfully")
-                # TODO: use pdf loader to get text from pdf
-        else:
-            st.warning("currently supported file types: pdf")
+
+    toggle_generate_button(True)
+    # getting the values from the text inputs and checking if they have changed
+    cl_job = st.session_state["cl_job"]
+    cl_company = st.session_state["cl_company"]
+    cl_resume = st.session_state["cl_resume"]
+
+    state_changed = update_button_state.check_state_changed(cl_job, cl_company, cl_resume)
+    # job_title or company is empty, warn user
+    if cl_job == "" or cl_company == "" or cl_resume is None:
+        warning_message = "Please enter the following: "
+        warning_message += "job title, " if cl_job == "" else ""
+        warning_message += "company, " if cl_company == "" else ""
+        warning_message += "resume" if cl_resume is None else ""
+        st.warning(warning_message)
+        home_ui.update_paper_container()
+        toggle_generate_button(False)
+
+    # job_title and company are filled, and state has changed, generate new cover letter
+    elif cl_job and cl_company and state_changed:
+        st.success("Generating cover letter")
+        generate_cover_letter(st, home_ui)
+        toggle_generate_button(False)
+
+    # job_title and company are filled, but state has not changed, do nothing
+    else:
+        home_ui.update_paper_container()
+        toggle_generate_button(False)
+
 
 # initializing the streamlit UI
-home_ui = Home()
+home_ui = Home(st)
 
 
 # adding the job title and company to col1
 with home_ui.col1:
-    st.text_input('What job title do you want to write a cover letter for?', key="cl_job")
-    st.text_input('What company should the cover letter be for?', key="cl_company")
+    st.text_input(
+        "What job title do you want to write a cover letter for?", key="cl_job"
+    )
+    st.text_input("What company should the cover letter be for?", key="cl_company")
     help_text = """
         This is used to help openai generate an accurate cover letter base on your skills and experience\n
         We will not store your resume or any other personal information
     """
-    st.file_uploader(label="upload your resume here", accept_multiple_files=False, help=help_text, key="cl_resume", on_change=get_text_from_resume)
-    
-# prompt template
-cl_job_template = PromptTemplate(
-    input_variables=['cl_job', 'cl_company'],
-    template="""
-        % QUERY:
-        write me a cover letter for the {cl_job} at {cl_company}
-        
-        % RESPONSE:
-    """
-)
+    # intializing retriever for resume
+    # TODO: split embedding/vectorstore generation and retriever generation
+    # more embeddings/vectorstores are going to be needed and only one retriever can be used for this usecase
+    file = st.file_uploader(
+        label="upload your resume here",
+        accept_multiple_files=False,
+        help=help_text,
+        key="cl_resume",
+        on_change=generate_embeddings_from_resume,
+        args=(st, )
+    )
 
-
-# llms
-llm=OpenAI(temperature=0.9, verbose=True)
-cl_chain = LLMChain(llm=llm, prompt=cl_job_template, verbose=True)
 
 # creating a state to check if the values for the cover letter have changed
 update_button_state = State()
 # attempts to generate cover letter on 'Generate' button press
-maybe_generate_cover_letter(update_button_state)
+if "generate_button_disabled" not in st.session_state:
+    st.session_state["generate_button_disabled"] = False
+def disable_generate_button(disable):
+    st.session_state["generate_button_disabled"] = disable
+
+# TODO: add a loading spinner while the cover letter is being generated
+# TODO: add logic to replace the generate button with a regenerate button when no changes have been made to inputs
+st.button(
+    "GENERATE",
+    on_click=maybe_generate_cover_letter,
+    key="generate_button",
+    args=(update_button_state, disable_generate_button, home_ui, ),
+    disabled=st.session_state["generate_button_disabled"],
+)
