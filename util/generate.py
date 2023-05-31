@@ -4,10 +4,35 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import Chroma
 from langchain.text_splitter import TokenTextSplitter
 from langchain.chat_models import ChatOpenAI
+from langchain.callbacks import get_openai_callback
+import tiktoken
 
 from langchain.prompts.prompt import PromptTemplate
-from langchain.chains import ConversationalRetrievalChain, ConversationChain
+from langchain.chains import ConversationalRetrievalChain
 from langchain.memory import ConversationBufferMemory
+
+# constants for cost calculation
+ADA_V2_TEXT_EMBED_COST = 0.0004
+ADA_V2_TEXT_EMBED_TOKENS = 1000
+
+def embedding_cost_estimate(num_tokens:int, model_cost: str, model_tokens: str) -> int:
+    """Returns the estimated cost of an openai text embedding run
+    Args:
+        num_tokens: number of tokens in the text
+        model_cost: cost of the model per 1000 tokens
+        model_tokens: number of tokens the model can process
+    Returns:
+        estimated cost of the model
+    """
+    # calculate the cost then round to 4 decimal places
+    cost = (num_tokens/model_tokens) * model_cost
+    return float("{:.4f}".format(cost))
+
+def num_tokens_from_string(string: str) -> int:
+    """Returns the number of tokens in a text string."""
+    encoding = tiktoken.get_encoding("cl100k_base")
+    num_tokens = len(encoding.encode(string))
+    return num_tokens
 
 def generate_embeddings_from_resume(st):
     """on file upload, get the text from the resume and store it in the session state
@@ -23,12 +48,15 @@ def generate_embeddings_from_resume(st):
         if status == FileStatus.FILE_PARSED:
             text_splitter = TokenTextSplitter(chunk_size=1000, chunk_overlap=50)
             split_doc = text_splitter.split_text(text)
-            if len(split_doc) <= 5:
+            num_tokens = num_tokens_from_string(text)
+            if num_tokens_from_string(text) < 4500:
                 st.success("file uploaded successfully")
-                embeddings = OpenAIEmbeddings()
+                embeddings = OpenAIEmbeddings(model="text-embedding-ada-002")
                 vectordb = Chroma.from_texts(split_doc, embeddings)
+                print("embedding cost: ", embedding_cost_estimate(num_tokens, ADA_V2_TEXT_EMBED_COST, ADA_V2_TEXT_EMBED_TOKENS))
                 retriever = vectordb.as_retriever(search_type="similarity")
                 st.session_state["cl_resume_retriever"] = retriever
+                st.session_state["resume_vector_db"] = vectordb
             else:
                 st.warning("resume is too long, please upload a shorter resume")
 
@@ -37,8 +65,13 @@ def generate_embeddings_from_resume(st):
             st.session_state["cl_resume_retriever"] = None
     # if file is None, this means the file was removed, do cleanup
     else:
+        if "resume_vector_db" in st.session_state and st.session_state["resume_vector_db"] is not None:
+            vectordb = st.session_state["resume_vector_db"]
+            Chroma.delete_collection(vectordb)
+        else:
+            st.session_state["resume_vector_db"] = None
+            
         st.session_state["cl_resume_retriever"] = None
-
 
 def generate_cover_letter(st, home_ui):
     cl_job = st.session_state["cl_job"]
@@ -52,6 +85,7 @@ def generate_cover_letter(st, home_ui):
                     % QUERY:
                     write me a cover letter for the {cl_job} at {cl_company}
                     keep it between 250 and 400 words
+                    make it sound like a human wrote it, don't make it too formal
                     {lookup_resume}
                     
                     % RESPONSE:
@@ -71,12 +105,14 @@ def generate_cover_letter(st, home_ui):
     )
     # generating the cover letter, if not retriever, leave blank
     lookup_resume = """
-        use the provided resume to generate the cover letter
-        use the my name from the resume
-        try to use skills and experiences from the resume that would best match the job if you know the company
+        use skills and experiences from my resume to write the cover letter
+        only get skills and experiences that are relevant to the job
+        use the resume creators name for the cover letter
     """
     question = cl_job_template.format(
         cl_job=cl_job, cl_company=cl_company, lookup_resume=lookup_resume
     )
-    result = my_qa({"question": question})
+    with get_openai_callback() as cb:
+        result = my_qa({"question": question})
+        print("openai usage: ", cb)
     home_ui.update_paper_container(updated_text=result["answer"])
