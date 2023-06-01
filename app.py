@@ -2,6 +2,7 @@ import streamlit as st
 
 from util.state import State
 from util.generate import generate_cover_letter, generate_embeddings_from_resume
+from util.job_search import search_postings
 from ui.home import Home
 
 
@@ -48,6 +49,7 @@ home_ui = Home(st)
 
 # adding the job title and company to col1
 with home_ui.col1:
+    # inputs for job title and company
     st.text_input(
         "What job title do you want to write a cover letter for?", key="cl_job"
     )
@@ -56,6 +58,14 @@ with home_ui.col1:
         This is used to help openai generate an accurate cover letter base on your skills and experience\n
         We will not store your resume or any other personal information
     """
+    
+    # job posting search
+    if "job_posting_search" not in st.session_state:
+        st.session_state["job_posting_search"] = ""
+    if "job_posting_search_results" not in st.session_state:
+        st.session_state["job_posting_search_result"] = ""
+    st.text_input("Add an optional job posting from Linkedin to further tailor your cover letter", value="", key="job_posting_search", on_change=search_postings, args=(st, ))
+    
     # intializing retriever for resume
     # TODO: split embedding/vectorstore generation and retriever generation
     # more embeddings/vectorstores are going to be needed and only one retriever can be used for this usecase
@@ -67,7 +77,6 @@ with home_ui.col1:
         on_change=generate_embeddings_from_resume,
         args=(st, )
     )
-
 
 # creating a state to check if the values for the cover letter have changed
 update_button_state = State()

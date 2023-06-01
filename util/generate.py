@@ -1,6 +1,7 @@
 from util.file_loader import text_from_file, FileStatus
 
 from langchain.embeddings.openai import OpenAIEmbeddings
+# from langchain.indexes import VectorstoreIndexCreator
 from langchain.vectorstores import Chroma
 from langchain.text_splitter import TokenTextSplitter
 from langchain.chat_models import ChatOpenAI
@@ -34,12 +35,11 @@ def num_tokens_from_string(string: str) -> int:
     num_tokens = len(encoding.encode(string))
     return num_tokens
 
+def generate_embeddings_from_job_posting(st):
+    """on job posting url upload, get the text from the job posting and store it in the session state as a retriever"""
+
 def generate_embeddings_from_resume(st):
-    """on file upload, get the text from the resume and store it in the session state
-    Args:
-    Returns:
-    """
-    
+    """on file upload, get the text from the resume and store it in the session state as a retriever"""
     if "cl_resume_retriever" not in st.session_state:
         st.session_state["cl_resume_retriever"] = None
     file = st.session_state["cl_resume"]
@@ -93,6 +93,7 @@ def generate_cover_letter(st, home_ui):
     )
     # getting retriever and memory for openai chat
     # only do so if the retriever exists
+    # TODO: refactor to generate embeddings then build the vectorstore and retriever for resume and job posting
     retriever = st.session_state["cl_resume_retriever"]
         
     st.session_state["memory"] = memory = ConversationBufferMemory(
