@@ -38,4 +38,3 @@ run the app with streamlit
 ```bash
 streamlit run app.py
 ```
-
