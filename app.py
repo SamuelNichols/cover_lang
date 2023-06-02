@@ -1,7 +1,7 @@
 import streamlit as st
 
 from util.state import State
-from util.generate import generate_cover_letter, generate_embeddings_from_resume
+from util.generate import generate_cover_letter, split_resume
 from util.job_search import search_postings
 from ui.home import Home
 
@@ -65,17 +65,13 @@ with home_ui.col1:
     if "job_posting_search_results" not in st.session_state:
         st.session_state["job_posting_search_result"] = ""
     st.text_input("Add an optional job posting from Linkedin to further tailor your cover letter", value="", key="job_posting_search", on_change=search_postings, args=(st, ))
-    
-    # intializing retriever for resume
-    # TODO: split embedding/vectorstore generation and retriever generation
-    # more embeddings/vectorstores are going to be needed and only one retriever can be used for this usecase
     file = st.file_uploader(
         label="upload your resume here",
         accept_multiple_files=False,
         help=help_text,
         key="cl_resume",
-        on_change=generate_embeddings_from_resume,
-        args=(st, )
+        on_change=split_resume,
+        args=(st, ),
     )
 
 # creating a state to check if the values for the cover letter have changed

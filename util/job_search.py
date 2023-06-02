@@ -4,8 +4,9 @@ import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs
 
-LINKEDIN_POSTING_CLASS = "show-more-less-html__markup show-more-less-html__markup--clamp-after-5 relative overflow-hidden"
+from util.generate import split_job_postings
 
+LINKEDIN_POSTING_CLASS = "show-more-less-html__markup"
 
 def maybe_search_linkedin(url: str) -> str | None:
     """ensures that the url is a valid linkedin job search url"""
@@ -29,8 +30,8 @@ def search_linkedin(url: str):
     html = requests.get(url)
     soup = BeautifulSoup(html.text, "html.parser")
     # find div with class LINKEDIN_POSTING_CLASS
-    actual_post_content = soup.find("div", ["show-more-less-html__markup"])
-    return actual_post_content
+    actual_post_content = soup.find("div", [LINKEDIN_POSTING_CLASS])
+    return actual_post_content.text
 
 # TODO: add more job search websites
 def search_postings(st):
@@ -42,7 +43,9 @@ def search_postings(st):
     if job_posting_search != "":
         res = maybe_search_linkedin(job_posting_search)
         if res:
-            st.session_state["job_posting_search_result"] = res
+            split_job_postings(st, res)
         else:
             st.warning("Please enter a valid linkedin job posting url")
+    else:
+        st.session_state["job_posting_search_result"] = None
 
