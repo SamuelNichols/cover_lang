@@ -6,7 +6,7 @@ class Home:
         """
         self.st = st
 
-        self.st.title("📝🦜🔗CoverChain")
+        self.st.title("📝🦜🔗CoverLang")
         self.st.markdown(
             """
             <style>
